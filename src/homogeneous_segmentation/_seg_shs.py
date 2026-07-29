@@ -14,6 +14,7 @@ def segment_ids_to_maximize_spatial_heterogeneity(
         measure:tuple[str, str],
         variable_column_names:list[str],
         allowed_segment_length_range:Optional[tuple[float, float]] = None,
+        legacy: bool = True,
     )->pd.Series:
     """
     Homogeneous segmentation function for continuous variables sing the Spatial Heterogeneity Segmentation (SHS) method.
@@ -53,6 +54,16 @@ def segment_ids_to_maximize_spatial_heterogeneity(
 
     # add length # remove system errors of small data
     data[LENGTH_COLUMN_NAME] = (data[measure_end] - data[measure_start]).round(decimals=10).values
+
+    # fast numpy-first path available — preserve legacy behavior by default
+    if not legacy:
+        from ._opt_fast import segment_ids_to_maximize_spatial_heterogeneity_fast
+        return segment_ids_to_maximize_spatial_heterogeneity_fast(
+            data=data,
+            measure=measure,
+            variable_column_names=variable_column_names,
+            allowed_segment_length_range=allowed_segment_length_range,
+        )
 
     if allowed_segment_length_range is None:
         allowed_segment_length_range = (
