@@ -17,7 +17,13 @@ implemented in this repository.
 Install directly from the optimization branch:
 
 ```bash
-pip install "git+https://github.com/thehappycheese/homogeneous-segmentation.git@feat/optimize-numpy-numba"
+pip install "git+https://github.com/Main-Roads/homogeneous-segmentation.git@feat/optimize-numpy-numba"
+```
+
+Or add it to a `uv`-managed project:
+
+```bash
+uv add "homogeneous-segmentation @ git+https://github.com/Main-Roads/homogeneous-segmentation.git@feat/optimize-numpy-numba"
 ```
 
 ## Development
