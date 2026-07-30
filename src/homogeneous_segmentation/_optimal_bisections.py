@@ -1,21 +1,243 @@
+from __future__ import annotations
 
-import pandas
-import numpy as np
-import numpy.typing as npt
 from typing import Callable, Literal
 
-_goal_functions = {
-    "min": np.min,
-    "max": np.max
-}
+import numpy as np
+import numpy.typing as npt
+from numba import njit
 
-def optimal_bisections (
-        variables:list[npt.NDArray[np.float64]],
-        length:npt.NDArray[np.float64],
-        minimum_segment_length:float,
-        cumulative_split_statistic:Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]],
-        goal:Literal["min", "max"] = "max"
-    ) -> npt.NDArray[np.int64]:
+from ._cumulative_p import (
+    cumulative_p,
+    cumulative_p_legacy,
+    cumulative_p_matrix,
+    cumulative_p_numba_optimized,
+    cumulative_p_numpy_optimized,
+)
+from ._cumulative_q import (
+    cumulative_q,
+    cumulative_q_legacy,
+    cumulative_q_matrix,
+    cumulative_q_numba_optimized,
+    cumulative_q_numpy_optimized,
+)
+
+_goal_functions = {"min": np.min, "max": np.max}
+
+Backend = Literal["numpy", "numba"]
+
+_Q_STATISTICS = (
+    cumulative_q,
+    cumulative_q_legacy,
+    cumulative_q_numpy_optimized,
+    cumulative_q_numba_optimized,
+)
+
+_P_STATISTICS = (
+    cumulative_p,
+    cumulative_p_legacy,
+    cumulative_p_numpy_optimized,
+    cumulative_p_numba_optimized,
+)
+
+
+def _select_best_candidate_positions(
+    candidate_indices: npt.NDArray[np.int64],
+    mean_objective: npt.NDArray[np.float64],
+    goal: Literal["min", "max"],
+) -> npt.NDArray[np.int64]:
+    """Return all best split positions to preserve legacy tie behavior."""
+
+    valid = ~np.isnan(mean_objective)
+    if not np.any(valid):
+        return np.empty(0, dtype=np.int64)
+
+    objective_values = mean_objective[valid]
+    best_value = (
+        np.nanmin(objective_values) if goal == "min" else np.nanmax(objective_values)
+    )
+    return candidate_indices[mean_objective == best_value].astype(np.int64) + 1
+
+
+def _as_2d_float64(
+    variables: list[npt.NDArray[np.float64]] | npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    array = np.asarray(variables, dtype=np.float64)
+    if array.ndim == 1:
+        array = array[np.newaxis, :]
+    return np.ascontiguousarray(array)
+
+
+def _valid_split_mask(
+    length: npt.NDArray[np.float64], minimum_segment_length: float
+) -> npt.NDArray[np.bool_]:
+    cumulative_length_left = np.cumsum(length)
+    cumulative_length_right = np.cumsum(length[::-1])[::-1]
+
+    k_mask = ~(
+        (cumulative_length_left <= minimum_segment_length)
+        | (cumulative_length_right <= minimum_segment_length)
+    )
+    expanded_false = (
+        np.convolve((~k_mask).astype(np.int8), np.ones(3, dtype=np.int8), mode="same")
+        > 0
+    )
+    return ~expanded_false
+
+
+@njit(cache=True)
+def _mean_objective_q_numba(
+    variables: np.ndarray, candidate_mask: np.ndarray
+) -> np.ndarray:
+    n_vars, n_rows = variables.shape
+    candidate_count = int(candidate_mask.sum())
+    mean_objective = np.zeros(candidate_count, dtype=np.float64)
+
+    for row in range(n_vars):
+        total_sum = 0.0
+        total_square_sum = 0.0
+        for col in range(n_rows):
+            value = variables[row, col]
+            total_sum += value
+            total_square_sum += value * value
+
+        denominator = total_square_sum - (total_sum * total_sum / n_rows)
+        left_sum = 0.0
+        left_square_sum = 0.0
+        out_index = 0
+
+        for split_index in range(n_rows - 1):
+            value = variables[row, split_index]
+            left_sum += value
+            left_square_sum += value * value
+
+            if candidate_mask[split_index]:
+                n_left = split_index + 1
+                n_right = n_rows - n_left
+                right_sum = total_sum - left_sum
+                right_square_sum = total_square_sum - left_square_sum
+
+                if denominator == 0.0:
+                    score = np.nan
+                else:
+                    score = 1.0 - (
+                        (
+                            (left_square_sum - (left_sum * left_sum / n_left))
+                            + (right_square_sum - (right_sum * right_sum / n_right))
+                        )
+                        / denominator
+                    )
+                mean_objective[out_index] += score
+                out_index += 1
+
+    return mean_objective / n_vars
+
+
+@njit(cache=True)
+def _mean_objective_p_numba(
+    variables: np.ndarray, candidate_mask: np.ndarray
+) -> np.ndarray:
+    n_vars, n_rows = variables.shape
+    candidate_count = int(candidate_mask.sum())
+    mean_objective = np.zeros(candidate_count, dtype=np.float64)
+
+    for row in range(n_vars):
+        total_sum = 0.0
+        total_square_sum = 0.0
+        for col in range(n_rows):
+            value = variables[row, col]
+            total_sum += value
+            total_square_sum += value * value
+
+        left_sum = 0.0
+        left_square_sum = 0.0
+        out_index = 0
+
+        for split_index in range(n_rows - 1):
+            value = variables[row, split_index]
+            left_sum += value
+            left_square_sum += value * value
+
+            if candidate_mask[split_index]:
+                n_left = split_index + 1
+                n_right = n_rows - n_left
+                right_sum = total_sum - left_sum
+                right_square_sum = total_square_sum - left_square_sum
+
+                if n_left <= 1 or n_right <= 1 or left_sum == 0.0 or right_sum == 0.0:
+                    score = np.nan
+                else:
+                    left_inner = (
+                        ((n_left * left_square_sum / (left_sum * left_sum)) - 1.0)
+                        * n_left
+                        / (n_left - 1.0)
+                    )
+                    right_inner = (
+                        ((n_right * right_square_sum / (right_sum * right_sum)) - 1.0)
+                        * n_right
+                        / (n_right - 1.0)
+                    )
+                    score = (np.sqrt(left_inner) + np.sqrt(right_inner)) / 2.0
+                mean_objective[out_index] += score
+                out_index += 1
+
+    return mean_objective / n_vars
+
+
+def _mean_objective_numpy(
+    variables: npt.NDArray[np.float64],
+    cumulative_split_statistic: Callable[
+        [npt.NDArray[np.float64]], npt.NDArray[np.float64]
+    ],
+    candidate_mask: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.float64]:
+    if cumulative_split_statistic in _Q_STATISTICS:
+        return np.mean(
+            cumulative_q_matrix(variables, legacy=False, backend="numpy")[
+                :, candidate_mask
+            ],
+            axis=0,
+        )
+    if cumulative_split_statistic in _P_STATISTICS:
+        return np.mean(
+            cumulative_p_matrix(variables, legacy=False, backend="numpy")[
+                :, candidate_mask
+            ],
+            axis=0,
+        )
+
+    candidate_count = int(candidate_mask.sum())
+    objective_matrix = np.empty((variables.shape[0], candidate_count), dtype=np.float64)
+    for row_index, variable in enumerate(variables):
+        objective_matrix[row_index, :] = cumulative_split_statistic(variable)[
+            candidate_mask
+        ]
+    return np.mean(objective_matrix, axis=0)
+
+
+def _mean_objective_numba(
+    variables: npt.NDArray[np.float64],
+    cumulative_split_statistic: Callable[
+        [npt.NDArray[np.float64]], npt.NDArray[np.float64]
+    ],
+    candidate_mask: npt.NDArray[np.bool_],
+) -> npt.NDArray[np.float64]:
+    if cumulative_split_statistic in _Q_STATISTICS:
+        return _mean_objective_q_numba(variables, candidate_mask)
+    if cumulative_split_statistic in _P_STATISTICS:
+        return _mean_objective_p_numba(variables, candidate_mask)
+    return _mean_objective_numpy(variables, cumulative_split_statistic, candidate_mask)
+
+
+def optimal_bisections(
+    variables: list[npt.NDArray[np.float64]],
+    length: npt.NDArray[np.float64],
+    minimum_segment_length: float,
+    cumulative_split_statistic: Callable[
+        [npt.NDArray[np.float64]], npt.NDArray[np.float64]
+    ],
+    goal: Literal["min", "max"] = "max",
+    backend: Backend = "numpy",
+) -> npt.NDArray[np.int64]:
     """
     Bisects the given data at either the minimum and maximum of the
     'cumulative_split_statistic' function.
@@ -36,63 +258,29 @@ def optimal_bisections (
     if goal_function is None:
         raise ValueError(f"goal must be one of {list(_goal_functions.keys())}")
 
-    cumulative_length_left  = np.cumsum(length)
-    cumulative_length_right = np.cumsum(length[::-1])[::-1]
-    
-    k_mask = ~ (
-          (cumulative_length_left  <= minimum_segment_length)
-        | (cumulative_length_right <= minimum_segment_length)
-    )
+    variables_array = _as_2d_float64(variables)
+    length_array = np.asarray(length, dtype=np.float64)
 
-    # to match the behaviour of the R script we must expand the false values
-    # in the array by one index either side;
-    # the bool series 001111000 is modified to 0001100000
-    # Since cumlength_left and cumlength_right should be monotonically increasing,
-    # the bool series should have at most 3 segments, with
-    # contiguous sections of zero only at the start and end of the series.
-    k_mask = ~np.convolve(~k_mask, [True, True, True])[1:-1] # TODO: check if segond arg must be coerced to numpy array?
-    
+    if length_array.size < 2:
+        return np.empty(0, dtype=np.int64)
 
-    
-    # plt.figure()
-    # (pandas.Series(k_mask,index=cumlength_left).astype("int") * 0.1).plot(color="grey", marker="x")
-    # pandas.Series(cumlength_left , index=cumlength_left).plot(marker=".")
-    # pandas.Series(cumlength_right, index=cumlength_left).plot(marker=".")
-    # plt.axhline(min_length)
+    k_mask = _valid_split_mask(length_array, minimum_segment_length)
+    candidate_mask = k_mask[1:]
+    candidate_indices = np.flatnonzero(candidate_mask)
+    if candidate_indices.size == 0:
+        return np.empty(0, dtype=np.int64)
 
-
-    k = np.flatnonzero(k_mask)
-    
-    try:
-        # confirm that k_mask splits the data into three portions
-        # this appears to be assumed in the R package?
-        assert len(np.split(k_mask,np.flatnonzero(k_mask[:-1] != k_mask[1:])+1)) == 3
-    except AssertionError:
-        # if it didn't split into 3 sections, perhaps one or two segments will not 
-        # print("did not split into 3... try 1 or 2?")
-        assert len(np.split(k_mask,np.flatnonzero(k_mask[:-1] != k_mask[1:])+1)) in {1,2}
-
-
-    objective_columns = []
-    for variable in variables:
-        # qvalue[, i] <- _cumq(data.var[[i]])[k - 1]
-        objective_columns.append(
-            cumulative_split_statistic(variable)[k_mask[1:]]
+    if backend == "numba":
+        mean_objective = _mean_objective_numba(
+            variables_array,
+            cumulative_split_statistic,
+            candidate_mask,
         )
-    
-    # qvalue = rowMeans(qvalue)
-    mean_objective = np.mean(objective_columns, axis=0)
-    
-    # NOTE: This next line appears to retrieve the index of the global maximum (mean) Q value.
-    #       It IS possible that it could return a list instead of a scalar
-    #       The downstream code will split at every index in maxk without complaint.
-    #       Thats ok, BUT there is no further check that we do not create a segment shorter
-    #       than the minimum segment length.
-    #       we could fix this my using np.argmax() which will return only the first maximum.
-    #       for now I will leave this as-is so that results are compareable with the R code.
-    # maxk <- which(qvalue == max(qvalue)) + max(k_left)
-    
-    maxk = np.flatnonzero(
-        mean_objective == goal_function(mean_objective)
-    ) + k[0]
-    return maxk
+    else:
+        mean_objective = _mean_objective_numpy(
+            variables_array,
+            cumulative_split_statistic,
+            candidate_mask,
+        )
+
+    return _select_best_candidate_positions(candidate_indices, mean_objective, goal)

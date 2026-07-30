@@ -1,12 +1,16 @@
 from io import StringIO
-import pandas as pd
+
 import numpy as np
-from homogeneous_segmentation._optimal_bisections import optimal_bisections
-from homogeneous_segmentation._cumulative_q import cumulative_q
+import pandas as pd
+
 from homogeneous_segmentation._cumulative_p import cumulative_p
+from homogeneous_segmentation._cumulative_q import cumulative_q
+from homogeneous_segmentation._optimal_bisections import optimal_bisections
+
 
 def test_optimal_bisections_max_q_cumulative():
-    data = pd.read_csv(StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
+    data = pd.read_csv(
+        StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
     H001,0.00,0.01,L,179.37,L
     H001,0.01,0.02,L,177.12,L
     H001,0.02,0.03,L,179.06,L
@@ -22,22 +26,24 @@ def test_optimal_bisections_max_q_cumulative():
     H001,0.12,0.13,L,245.53,L
     H001,0.13,0.14,L,315.77,L
     H001,0.14,0.15,L,373.86,L
-    H001,0.15,0.16,L,333.56,L"""))
+    H001,0.15,0.16,L,333.56,L""")
+    )
     # in R the result is 10 but R uses index from 1
     expected_result = 9
     actual_result = optimal_bisections(
-        variables                  = [data["deflection"].values],
-        length                     = (data["slk_to"] - data["slk_from"]).values,
-        minimum_segment_length     = 0.030,
-        cumulative_split_statistic = cumulative_q,
-        goal                       = "max"
+        variables=[data["deflection"].values],
+        length=(data["slk_to"] - data["slk_from"]).values,
+        minimum_segment_length=0.030,
+        cumulative_split_statistic=cumulative_q,
+        goal="max",
     )
     assert actual_result[0] == expected_result
     assert actual_result.dtype == np.int64
 
 
 def test_optimal_bisections_min_p_cumulative():
-    data = pd.read_csv(StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
+    data = pd.read_csv(
+        StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
     H001,0.00,0.01,L,179.37,L
     H001,0.01,0.02,L,177.12,L
     H001,0.02,0.03,L,179.06,L
@@ -53,15 +59,16 @@ def test_optimal_bisections_min_p_cumulative():
     H001,0.12,0.13,L,245.53,L
     H001,0.13,0.14,L,315.77,L
     H001,0.14,0.15,L,373.86,L
-    H001,0.15,0.16,L,333.56,L"""))
+    H001,0.15,0.16,L,333.56,L""")
+    )
 
-    expected_result = 9 # result in R is 10 but R uses index from 1
+    expected_result = 9  # result in R is 10 but R uses index from 1
     actual_result = optimal_bisections(
-        variables                  = [data["deflection"].values],
-        length                     = (data["slk_to"] - data["slk_from"]).values,
-        minimum_segment_length     = 0.030,
-        cumulative_split_statistic = cumulative_p,
-        goal                       = "min"
+        variables=[data["deflection"].values],
+        length=(data["slk_to"] - data["slk_from"]).values,
+        minimum_segment_length=0.030,
+        cumulative_split_statistic=cumulative_p,
+        goal="min",
     )
     assert actual_result[0] == expected_result
     assert actual_result.dtype == np.int64

@@ -4,17 +4,20 @@ build-backend = "hatchling.build"
 
 [project]
 name = "homogeneous-segmentation"
-version = "2.1.0"
+version = "2.2.0.dev0"
 authors = [
     { name = "Yongze Song", role="author of original R package named HS" },
-    { name = "Nicholas Archer", role = "port to python / maintainer" }
+    { name = "Nicholas Archer", role = "port to python" },
+    { name = "Dagmawi Tadesse", role = "NumPy/Numba optimization and maintenance" }
 ]
 license = "GPL-2.0-only"
-description = "Methods for homogenous segmentation of linear spatial data, such as pavement performance indicators and traffic volumes. Two of the three original methods have been ported; the spatial heterogeneity based segmentation, and the Minimise Coefficient of Variation segmentation. The original R package also implmented the cumulative difference approach and a number of associated functions not ported to thise package."
-readme = "readme.md"
+description = "Homogeneous segmentation of linear spatial data using SHS and MCV methods ported from the R HS package, with legacy pandas and optimized NumPy/Numba backends."
+readme = "README.md"
 
 dependencies = [
-    "pandas"
+    "numba>=0.60.0",
+    "numpy>=2.0.2",
+    "pandas",
 ]
 requires-python = ">=3.9"
 
@@ -24,7 +27,10 @@ requires-python = ">=3.9"
 
 [project.optional-dependencies]
 dev = [
-    "pytest"
+    "pre-commit>=3.7,<4.0",
+    "pyright[nodejs]>=1.1",
+    "pytest>=8.0",
+    "ruff>=0.14",
 ]
 
 [tool.pytest.ini_options]
@@ -34,5 +40,17 @@ testpaths = [
   "tests"
 ]
 
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+src = ["src", "tests", "benchmarks"]
+extend-exclude = ["*.ipynb", "dist", "ephemerals", "merge-segments"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.pylint]
-max-line-length = 120
+max-line-length = 88

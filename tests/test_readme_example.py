@@ -1,18 +1,22 @@
-"""Tests for code snippets used in the readme.md
-Tests are written such that the body of each function can be copied as-is into the readme.md
+"""Tests for code snippets used in the README.md
+Tests are written such that the body of each function can be copied as-is into the README.md
 therefore imports are made inside the functions and not at the top of the file.
 """
 # pylint: disable=missing-function-docstring, import-outside-toplevel
 
+
 def test_readme_example():
-    from homogeneous_segmentation import (
-        segment_ids_to_maximize_spatial_heterogeneity,
-        segment_ids_to_minimize_coefficient_of_variation
-    )
-    import pandas as pd
     from io import StringIO
 
-    df = pd.read_csv(StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
+    import pandas as pd
+
+    from homogeneous_segmentation import (
+        segment_ids_to_maximize_spatial_heterogeneity,
+        segment_ids_to_minimize_coefficient_of_variation,
+    )
+
+    df = pd.read_csv(
+        StringIO("""road,slk_from,slk_to,cwy,deflection,dirn
     H001,0.00,0.01,L,179.37,L
     H001,0.01,0.02,L,177.12,L
     H001,0.02,0.03,L,179.06,L
@@ -28,24 +32,27 @@ def test_readme_example():
     H001,0.12,0.13,L,245.53,L
     H001,0.13,0.14,L,315.77,L
     H001,0.14,0.15,L,373.86,L
-    H001,0.15,0.16,L,333.56,L"""))
+    H001,0.15,0.16,L,333.56,L""")
+    )
 
     df["seg.shs"] = segment_ids_to_maximize_spatial_heterogeneity(
-        data                         = df,
-        measure                      = ("slk_from", "slk_to"),
-        variable_column_names        = ["deflection"],
-        allowed_segment_length_range = (0.030, 0.080)
+        data=df,
+        measure=("slk_from", "slk_to"),
+        variable_column_names=["deflection"],
+        allowed_segment_length_range=(0.030, 0.080),
+        legacy=False,
     )
 
     df["seg.mcv"] = segment_ids_to_minimize_coefficient_of_variation(
-        data                         = df,
-        measure                      = ("slk_from", "slk_to"),
-        variable_column_names        = ["deflection"],
-        allowed_segment_length_range = (0.030, 0.080)
+        data=df,
+        measure=("slk_from", "slk_to"),
+        variable_column_names=["deflection"],
+        allowed_segment_length_range=(0.030, 0.080),
+        legacy=False,
     )
 
-
-    expected_result          = pd.read_csv(StringIO("""road,slk_from,slk_to,cwy,deflection,dirn,seg.shs,seg.mcv
+    expected_result = pd.read_csv(
+        StringIO("""road,slk_from,slk_to,cwy,deflection,dirn,seg.shs,seg.mcv
     H001,0.00,0.01,L,179.37,L,1,1
     H001,0.01,0.02,L,177.12,L,1,1
     H001,0.02,0.03,L,179.06,L,1,1
@@ -62,11 +69,12 @@ def test_readme_example():
     H001,0.13,0.14,L,315.77,L,3,3
     H001,0.14,0.15,L,373.86,L,3,3
     H001,0.15,0.16,L,333.56,L,3,3
-    """))
+    """)
+    )
 
     # check the result matches the expected result
     pd.testing.assert_frame_equal(
-        left       = df,
-        right      = expected_result,
-        check_like = True # ignore column and row order
+        left=df,
+        right=expected_result,
+        check_like=True,  # ignore column and row order
     )

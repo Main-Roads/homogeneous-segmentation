@@ -1,0 +1,20 @@
+{
+  "include": [
+    "src/homogeneous_segmentation",
+    "benchmarks/bench.py"
+  ],
+  "exclude": [
+    "dist",
+    "ephemerals",
+    "merge-segments"
+  ],
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "reportMissingModuleSource": "none",
+  "reportArgumentType": "none",
+  "reportAssignmentType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalSubscript": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportPossiblyUnboundVariable": "none"
+}
